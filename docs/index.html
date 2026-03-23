@@ -71,7 +71,7 @@
 <body>
 
 <div id="header">
-    <div id="level-name">加载中…</div>
+    <div id="level-name">小步乐读 预备2级</div>
     <div id="progress-container"><div id="progress-bar"></div></div>
     <div id="progress-text">准备好挑战了吗？</div>
 </div>
@@ -109,7 +109,19 @@ const MAX_HISTORY = 50;
 
 const FALLBACK_DATA = {
   "level": "小步乐读 预备2级",
-  "books": []
+  "books": [
+    { "title": "鲤鱼跳龙门", "focus_chars": ["河", "鱼", "龙", "门", "黄", "跳"] },
+    { "title": "今天吃什么？", "focus_chars": ["米", "面", "圆", "香", "吃", "喝"] },
+    { "title": "新的一天开始啦", "focus_chars": ["象", "牙", "脸", "床", "衣", "吃"] },
+    { "title": "云朵变变变", "focus_chars": ["云", "看", "见"] },
+    { "title": "变色龙", "focus_chars": ["龙", "红", "黄", "绿", "爬"] },
+    { "title": "十二生肖", "focus_chars": ["虎", "猴", "龙", "蛇"] },
+    { "title": "星星和宝贝", "focus_chars": ["星", "爷", "奶", "灯", "怕"] },
+    { "title": "妈妈，抱抱", "focus_chars": ["爱", "抱", "打", "抢", "不"] },
+    { "title": "大熊猫，圆滚滚", "focus_chars": ["熊", "圆", "坐", "爬", "画"] },
+    { "title": "瓜果蔬菜香", "focus_chars": ["土", "瓜", "果", "菜", "红", "黄"] },
+    { "title": "手指变变变", "focus_chars": ["四", "五", "六", "七", "爬"] }
+  ]
 };
 
 function loadHistory() {
@@ -210,68 +222,66 @@ async function loadData() {
   }
 }
 
-let rawData;
+// 1. 预处理：建立“字 -> 绘本”的反向映射
 let allUniqueWords = [];
 let wordToBooksMap = {};
-let testWords = [];
+
+rawData.books.forEach(book => {
+    book.focus_chars.forEach(char => {
+        if (!wordToBooksMap[char]) {
+            wordToBooksMap[char] = [];
+            allUniqueWords.push(char);
+        }
+        wordToBooksMap[char].push(book.title);
+    });
+});
+
+// 2. 随机洗牌并抽取前 20 个
+let testWords = [...allUniqueWords]
+    .sort(() => Math.random() - 0.5) // 洗牌
+    .slice(0, TEST_COUNT);           // 截取 20 个
+
 let currentIndex = 0;
 let wrongWords = [];
 
-function buildIndex(data) {
-  allUniqueWords = [];
-  wordToBooksMap = {};
+document.getElementById('level-name').innerText = rawData.level;
 
-  (data.books || []).forEach(book => {
-    (book.focus_chars || []).forEach(char => {
-      if (!wordToBooksMap[char]) {
-        wordToBooksMap[char] = [];
-        allUniqueWords.push(char);
-      }
-      wordToBooksMap[char].push(book.title);
-    });
-  });
-}
-
-function pickWords() {
-  testWords = [...allUniqueWords]
-    .sort(() => Math.random() - 0.5)
-    .slice(0, Math.min(TEST_COUNT, allUniqueWords.length));
-}
-
+// 3. 显示下一个字
 function render() {
-  if (currentIndex < testWords.length) {
-    document.getElementById("word-card").innerText = testWords[currentIndex];
-    document.getElementById("progress-text").innerText = `进度：${currentIndex + 1} / ${testWords.length}`;
-    document.getElementById("progress-bar").style.width = (currentIndex / testWords.length * 100) + "%";
-  } else {
-    finish();
-  }
+    if (currentIndex < testWords.length) {
+        document.getElementById('word-card').innerText = testWords[currentIndex];
+        document.getElementById('progress-text').innerText = `进度：${currentIndex + 1} / ${testWords.length}`;
+        document.getElementById('progress-bar').style.width = (currentIndex / testWords.length * 100) + '%';
+    } else {
+        finish();
+    }
 }
 
+// 4. 处理用户点击
 function handle(isKnown) {
-  if (!isKnown) wrongWords.push(testWords[currentIndex]);
-  currentIndex++;
-  render();
+    if (!isKnown) {
+        wrongWords.push(testWords[currentIndex]);
+    }
+    currentIndex++;
+    render();
 }
 
+// 5. 生成报告
 function finish() {
-  document.getElementById("quiz").style.display = "none";
-  document.getElementById("header").style.display = "none";
-  const report = document.getElementById("report");
-  report.style.display = "block";
+    document.getElementById('quiz').style.display = 'none';
+    document.getElementById('header').style.display = 'none';
+    const report = document.getElementById('report');
+    report.style.display = 'block';
 
-  let bookPriority = {};
-  (rawData.books || []).forEach(b => { bookPriority[b.title] = []; });
-  
-  wrongWords.forEach(word => {
-    (wordToBooksMap[word] || []).forEach(bookTitle => {
-      bookPriority[bookTitle].push(word);
+    // 统计每本绘本关联到的生字
+    let bookPriority = {}; 
+    rawData.books.forEach(b => bookPriority[b.title] = []);
+    
+    wrongWords.forEach(word => {
+        wordToBooksMap[word].forEach(bookTitle => {
+            bookPriority[bookTitle].push(word);
+        });
     });
-  });
-
-  const sortedBooks = Object.entries(bookPriority)
-    .filter(item => item[1].length > 0)
-    .sort((a, b) => b[1].length - a[1].length);
 
   const score = testWords.length
     ? Math.round(((testWords.length - wrongWords.length) / testWords.length) * 100)
@@ -319,21 +329,9 @@ function finish() {
   }
 }
 
-async function init() {
-  rawData = await loadData();
-  document.getElementById("level-name").innerText = rawData.level || "识字小闯关";
-
-  buildIndex(rawData);
-  pickWords();
-
-  currentIndex = 0;
-  wrongWords = [];
-  render();
-}
-
-init();
+// 初始化
+render();
 </script>
 
 </body>
 </html>
-
