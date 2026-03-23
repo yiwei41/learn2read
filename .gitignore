@@ -1,0 +1,10 @@
+.DS_Store
+
+# Raw screenshots / images (do not commit)
+books_screenshot/
+processed/scaled/
+processed/scaled/**
+
+# Derived / scratch artifacts (keep source of truth in docs/)
+processed/
+
