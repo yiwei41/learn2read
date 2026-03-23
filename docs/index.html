@@ -49,6 +49,23 @@
         .book-item { border-bottom: 1px solid #eee; padding: 15px 0; display: flex; justify-content: space-between; align-items: center; }
         .tag { background: #ff5252; color: white; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: bold; }
         .wrong-char { display: inline-block; background: #fbe9e7; color: #d84315; padding: 2px 8px; border-radius: 4px; margin: 2px; }
+        .sub-actions { display: flex; gap: 10px; margin-top: 12px; }
+        .sub-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 12px;
+            background: #f3f3f3;
+            color: #333;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .sub-btn:active { transform: scale(0.98); }
+        #save-status { margin-top: 10px; font-size: 12px; color: #777; text-align: center; }
+        #history { display: none; margin-top: 18px; }
+        .history-item { border-top: 1px solid #eee; padding: 12px 0; }
+        .history-meta { font-size: 12px; color: #777; margin-top: 4px; }
     </style>
 </head>
 <body>
@@ -75,15 +92,112 @@
     <div id="book-list"></div>
     
     <button onclick="location.reload()" style="width:100%; padding:18px; background:var(--primary); border:none; color:white; border-radius:15px; margin-top:20px; font-size:20px; font-weight:bold; cursor:pointer;">再测 20 个字</button>
+
+    <div class="sub-actions">
+        <button class="sub-btn" onclick="toggleHistory()">查看历史</button>
+        <button class="sub-btn" onclick="exportLatest()">导出本次</button>
+        <button class="sub-btn" onclick="clearHistory()">清空历史</button>
+    </div>
+    <div id="save-status"></div>
+    <div id="history"></div>
 </div>
 
 <script>
 const TEST_COUNT = 20; // 每次测试的字数
+const STORAGE_KEY = "learn2read:test_results:v1";
+const MAX_HISTORY = 50;
 
 const FALLBACK_DATA = {
   "level": "小步乐读 预备2级",
   "books": []
 };
+
+function loadHistory() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(items) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+}
+
+function addToHistory(record) {
+  const items = loadHistory();
+  items.unshift(record);
+  const trimmed = items.slice(0, MAX_HISTORY);
+  saveHistory(trimmed);
+  return trimmed;
+}
+
+function formatLocalTime(iso) {
+  try { return new Date(iso).toLocaleString(); } catch { return iso; }
+}
+
+function renderHistory() {
+  const el = document.getElementById("history");
+  const items = loadHistory();
+  if (!items.length) {
+    el.innerHTML = `<p style="text-align:center; color:#777; margin: 10px 0;">暂无历史记录</p>`;
+    return;
+  }
+
+  el.innerHTML = items.map((r, idx) => {
+    const wrong = (r.wrongWords || []).join(" ");
+    const total = (r.testWords || []).length;
+    const known = total - ((r.wrongWords || []).length);
+    return `
+      <div class="history-item">
+        <div style="font-weight:bold; color:#5D4037;">${idx + 1}. ${r.level || "识字小闯关"}（得分：${r.score ?? "-"}）</div>
+        <div class="history-meta">${formatLocalTime(r.endedAt)} · 共测 ${total} 字，认识 ${known} 字</div>
+        <div class="history-meta">需练习：${wrong || "无"}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+function toggleHistory() {
+  const el = document.getElementById("history");
+  const next = el.style.display === "block" ? "none" : "block";
+  el.style.display = next;
+  if (next === "block") renderHistory();
+}
+
+function exportJson(filename, obj) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportLatest() {
+  const items = loadHistory();
+  if (!items.length) {
+    alert("还没有可导出的记录。请先完成一次测试。");
+    return;
+  }
+  const latest = items[0];
+  const safeDate = (latest.endedAt || "").replace(/[:]/g, "-");
+  exportJson(`learn2read-result-${safeDate || "latest"}.json`, latest);
+}
+
+function clearHistory() {
+  const ok = confirm("确定要清空历史记录吗？（只影响本机浏览器）");
+  if (!ok) return;
+  localStorage.removeItem(STORAGE_KEY);
+  document.getElementById("save-status").innerText = "历史记录已清空。";
+  renderHistory();
+}
 
 async function loadData() {
   try {
@@ -180,6 +294,29 @@ function finish() {
       ${words.length >= 2 ? '<span class="tag">重点复读</span>' : ""}
     </div>
   `).join("") || '<p style="text-align:center; color:#4CAF50;">宝贝全都会，太棒了！</p>';
+
+  // Save result locally (on this device/browser)
+  const endedAt = new Date().toISOString();
+  const record = {
+    endedAt,
+    level: rawData.level || "识字小闯关",
+    testCount: testWords.length,
+    testWords: [...testWords],
+    wrongWords: [...wrongWords],
+    score,
+    suggestedBooks: sortedBooks.map(([title, words]) => ({
+      title,
+      wrongChars: words
+    }))
+  };
+
+  try {
+    addToHistory(record);
+    document.getElementById("save-status").innerText = `已保存到本机：${formatLocalTime(endedAt)}（共保留最近 ${MAX_HISTORY} 次）`;
+  } catch (e) {
+    console.warn("Failed to save result.", e);
+    document.getElementById("save-status").innerText = "保存失败：浏览器存储不可用（可用“导出本次”手动保存）。";
+  }
 }
 
 async function init() {
